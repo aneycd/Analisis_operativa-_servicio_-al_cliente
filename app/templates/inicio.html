@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+
+{% block title %}Inicio - Análisis Operativo{% endblock %}
+
+{% block content %}
+<div class="content-block">
+    <div class="card">
+        <h2>Análisis Operativo de Servicio al Cliente</h2>
+        <p>
+            Ejecuta el análisis de métricas del Contact Center usando los archivos de insumos
+            de la carpeta <code>insumos/</code>. Los cálculos son código rígido (reglas R1-R5);
+            el agente de IA solo formatea el informe.
+        </p>
+
+        <div class="alert alert-info">
+            <strong>Archivos de insumos esperados:</strong>
+            <ul style="margin-top: 0.5rem; padding-left: 1.5rem; color: #94a3b8;">
+                <li><code>Control CHATBOT.xlsx</code></li>
+                <li><code>Control llamadas y correos.xlsx</code></li>
+                <li><code>Control WhatsApp.xlsx</code></li>
+            </ul>
+            <p style="margin-top: 0.75rem; font-size: 0.9rem;">
+                Nota: los archivos ya deben estar en la carpeta <code>insumos/</code>. La app los
+                lee en modo solo lectura; no se modifica nada dentro de <code>insumos/</code>.
+            </p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Ejecutar Análisis</h3>
+        <form id="form-analisis">
+            <label for="observaciones">Observaciones adicionales (opcional)</label>
+            <textarea id="observaciones" name="observaciones" rows="3" placeholder="Ej: mes de cierre, canal prioritario..."></textarea>
+
+            <button type="submit" id="btn-ejecutar" class="btn-primary">Ejecutar Análisis</button>
+        </form>
+
+        <div id="resultado" style="margin-top: 1.5rem; display: none;"></div>
+    </div>
+
+    <div class="card">
+        <h3>Reglas del Sistema</h3>
+        <ul style="color: #94a3b8; padding-left: 1.5rem; line-height: 1.8;">
+            <li>Los datos se leen exclusivamente desde la carpeta <code>insumos/</code> (solo lectura).</li>
+            <li>No se modifican ni se escriben archivos dentro de <code>insumos/</code> ni <code>contexto/</code>.</li>
+            <li>No se inventan columnas, archivos ni reglas que no estén definidas en <code>AGENTS.md</code>.</li>
+            <li>Si falta un dato, se reporta explícitamente sin asumir valores.</li>
+            <li>El agente de IA solo formatea el informe; los cálculos son código rígido (R1-R5).</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+// Estado global de los datos
+let datosGlobales = null;
+
+function fmt(valor) {
+    return valor != null && valor !== "" ? valor : "—";
+}
+
+function crearFila(celdas) {
+    const tr = document.createElement("tr");
+    for (const celda of celdas) {
+        const td = document.createElement("td");
+        td.textContent = celda;
+        tr.appendChild(td);
+    }
+    return tr;
+}
+
+function llenarContadores(datos) {
+    const contenedor = document.createElement("div");
+    contenedor.style.cssText = "display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem;";
+
+    const r1 = datos.r1_metricas_canal;
+    const r5 = datos.r5_desempeno_asesor;
+
+    let totalAtendidas = 0;
+    let totalAhtSuma = 0;
+    let totalAhtCount = 0;
+    let totalTrSuma = 0;
+    let totalTrCount = 0;
+    let totalGestiones = r5.resumen.total_gestiones_global || 0;
+
+    for (const canal of r1.canales) {
+        if (canal.cantidad_atendida != null) totalAtendidas += canal.cantidad_atendida;
+        if (canal.aht != null) { totalAhtSuma += canal.aht; totalAhtCount++; }
+        if (canal.tr != null) { totalTrSuma += canal.tr; totalTrCount++; }
+    }
+
+    const ahtPromedio = totalAhtCount > 0 ? (totalAhtSuma / totalAhtCount).toFixed(2) : "—";
+    const trPromedio = totalTrCount > 0 ? (totalTrSuma / totalTrCount).toFixed(2) : "—";
+
+    const contadores = [
+        { etiqueta: "Cantidad Atendida", valor: totalAtendidas.toLocaleString(), subtitulo: "Todos los canales" },
+        { etiqueta: "AHT Promedio", valor: ahtPromedio, subtitulo: "Promedio por canal" },
+        { etiqueta: "TR Promedio", valor: trPromedio, subtitulo: "Tasa de respuesta" },
+        { etiqueta: "Total Gestiones", valor: totalGestiones.toLocaleString(), subtitulo: "Suma global por asesor" },
+    ];
+
+    for (const c of contadores) {
+        const card = document.createElement("div");
+        card.style.cssText = "background:#1e293b; border:1px solid #334155; border-radius:0.75rem; padding:1.5rem; text-align:center; min-width:150px; flex:1;";
+        card.innerHTML = `
+            <div style="font-size:0.85rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem;">${c.etiqueta}</div>
+            <div style="font-size:2rem; font-weight:700; color:#38bdf8;">${c.valor}</div>
+            <div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">${c.subtitulo}</div>
+        `;
+        contenedor.appendChild(card);
+    }
+
+    return contenedor;
+}
+
+function crearTablaFiltrable(id, encabezados, filasDatos, resumenTexto) {
+    const contenedor = document.createElement("div");
+    contenedor.style.cssText = "margin-bottom: 1.5rem;";
+
+    // Filtro de tabla
+    const filtro = document.createElement("input");
+    filtro.type = "text";
+    filtro.placeholder = `Filtrar filas en ${id}...`;
+    filtro.style.cssText = "width:100%; padding:0.75rem; font-size:1rem; border-radius:0.5rem; border:1px solid #334155; background:#0f172a; color:#e2e8f0; font-family:inherit; margin-bottom:0.75rem;";
+
+    const tabla = document.createElement("table");
+    tabla.className = "tabla-filtrable";
+    tabla.style.width = "100%";
+    tabla.style.borderCollapse = "collapse";
+
+    const thead = document.createElement("thead");
+    const trHead = document.createElement("tr");
+    for (const h of encabezados) {
+        const th = document.createElement("th");
+        th.textContent = h;
+        th.style.cssText = "padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;";
+        trHead.appendChild(th);
+    }
+    thead.appendChild(trHead);
+    tabla.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const fila of filasDatos) {
+        tbody.appendChild(crearFila(fila));
+    }
+    tabla.appendChild(tbody);
+
+    const resumen = document.createElement("p");
+    resumen.textContent = resumenTexto;
+    resumen.style.cssText = "margin-top:0.5rem; color:#94a3b8; font-size:0.9rem;";
+
+    contenedor.appendChild(filtro);
+    contenedor.appendChild(tabla);
+    contenedor.appendChild(resumen);
+
+    // Función de filtro
+    filtro.addEventListener("input", function () {
+        const texto = filtro.value.toLowerCase();
+        for (const fila of tbody.rows) {
+            let coincide = false;
+            for (const celda of fila.cells) {
+                if (celda.textContent.toLowerCase().includes(texto)) {
+                    coincide = true;
+                    break;
+                }
+            }
+            fila.style.display = coincide ? "" : "none";
+        }
+    });
+
+    return contenedor;
+}
+
+document.getElementById('form-analisis').addEventListener('submit', async function (e) {
+    e.preventDefault();
+
+    const btn = document.getElementById('btn-ejecutar');
+    const resultadoDiv = document.getElementById('resultado');
+    const observaciones = document.getElementById('observaciones').value;
+
+    btn.disabled = true;
+    btn.textContent = 'Procesando...';
+    resultadoDiv.style.display = 'none';
+    resultadoDiv.innerHTML = '';
+
+    try {
+        const respuesta = await fetch('/api/informe', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!respuesta.ok) {
+            throw new Error('Error del servidor: ' + respuesta.status);
+        }
+
+        datosGlobales = await respuesta.json();
+
+        const r1 = datosGlobales.r1_metricas_canal;
+        const r2 = datosGlobales.r2_correos_buzon;
+        const r3 = datosGlobales.r3_matriz_asesor_buzon;
+        const r4 = datosGlobales.r4_whatsapp_subcanal;
+        const r5 = datosGlobales.r5_desempeno_asesor;
+
+        // Construir HTML de resultados con contadores grandes y tablas filtr
+        let html = '<h3 style="color:#38bdf8; margin-bottom:1rem;">Resultados del Análisis</h3>';
+
+        // Contadores grandes
+        html += '<div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:2rem;">';
+
+        let totalAtendidas = 0;
+        let totalAhtSuma = 0;
+        let totalAhtCount = 0;
+        let totalTrSuma = 0;
+        let totalTrCount = 0;
+        let totalGestiones = r5.resumen.total_gestiones_global || 0;
+
+        for (const canal of r1.canales) {
+            if (canal.cantidad_atendida != null) totalAtendidas += canal.cantidad_atendida;
+            if (canal.aht != null) { totalAhtSuma += canal.aht; totalAhtCount++; }
+            if (canal.tr != null) { totalTrSuma += canal.tr; totalTrCount++; }
+        }
+
+        const ahtPromedio = totalAhtCount > 0 ? (totalAhtSuma / totalAhtCount).toFixed(2) : "—";
+        const trPromedio = totalTrCount > 0 ? (totalTrSuma / totalTrCount).toFixed(2) : "—";
+
+        const contadores = [
+            { etiqueta: "Cantidad Atendida", valor: totalAtendidas.toLocaleString(), subtitulo: "Todos los canales" },
+            { etiqueta: "AHT Promedio", valor: ahtPromedio, subtitulo: "Promedio por canal" },
+            { etiqueta: "TR Promedio", valor: trPromedio, subtitulo: "Tasa de respuesta" },
+            { etiqueta: "Total Gestiones", valor: totalGestiones.toLocaleString(), subtitulo: "Suma global por asesor" },
+        ];
+
+        for (const c of contadores) {
+            html += `
+                <div style="background:#1e293b; border:1px solid #334155; border-radius:0.75rem; padding:1.5rem; text-align:center; min-width:150px; flex:1;">
+                    <div style="font-size:0.85rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem;">${c.etiqueta}</div>
+                    <div style="font-size:2rem; font-weight:700; color:#38bdf8;">${c.valor}</div>
+                    <div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">${c.subtitulo}</div>
+                </div>
+            `;
+        }
+        html += '</div>';
+
+        // Filtro global para todas las tablas
+        html += `
+            <input type="text" id="filtro-global" placeholder="Escriba para filtrar filas en todas las tablas..." style="width:100%; padding:0.75rem; font-size:1rem; border-radius:0.5rem; border:1px solid #334155; background:#0f172a; color:#e2e8f0; font-family:inherit; margin-bottom:1.5rem;">
+            <p style="margin-top:0.5rem; color:#64748b; font-size:0.9rem; margin-bottom:1.5rem;">El filtro busca en cualquier celda de las tablas siguientes.</p>
+        `;
+
+        // R1
+        html += '<h4 style="color:#38bdf8; margin-top:1rem;">R1 — Métricas globales por canal</h4>';
+        html += '<table class="tabla-filtrable" style="width:100%; border-collapse:collapse; margin-bottom:1rem;">';
+        html += '<thead><tr><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Canal</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Archivo</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Hoja</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Filas</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Cantidad Atendida</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">AHT</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">TR</th></tr></thead><tbody>';
+        for (const canal of r1.canales) {
+            html += '<tr>';
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${canal.canal}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${canal.archivo || '—'}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${canal.hoja || '—'}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${canal.filas_procesadas}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(canal.cantidad_atendida)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(canal.aht)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(canal.tr)}</td>`;
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        html += `<p style="margin-top:0.5rem; color:#94a3b8; font-size:0.9rem;"><strong>Resumen:</strong> ${r1.resumen.canales_con_datos} de ${r1.resumen.total_canales} canales con datos.</p>`;
+
+        // R2
+        html += '<h4 style="color:#38bdf8; margin-top:1.5rem;">R2 — Desglose de correos por buzón</h4>';
+        html += '<table class="tabla-filtrable" style="width:100%; border-collapse:collapse; margin-bottom:1rem;">';
+        html += '<thead><tr><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Buzón</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Archivo</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Hoja</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Cantidad</th></tr></thead><tbody>';
+        for (const b of r2.buzones) {
+            html += '<tr>';
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${b.buzon}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${b.archivo || '—'}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${b.hoja || '—'}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(b.cantidad_atendida)}</td>`;
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        let resumenR2 = `<p style="margin-top:0.5rem; color:#94a3b8; font-size:0.9rem;"><strong>Resumen:</strong> ${r2.resumen.buzones_encontrados} de ${r2.resumen.total_buzones} buzones encontrados en insumos.</p>`;
+        if (r2.columnas_faltantes.length > 0) {
+            resumenR2 += `<p style="color:#fca5a5;"><strong>Buzones sin columna:</strong> ${r2.columnas_faltantes.join(', ')}.</p>`;
+        }
+        html += resumenR2;
+
+        // R3
+        html += '<h4 style="color:#38bdf8; margin-top:1.5rem;">R3 — Matriz Asesor vs Buzón de correos</h4>';
+        if (!r3.datos_disponibles) {
+            html += '<p style="color:#fca5a5;">No hay datos disponibles para calcular la matriz.</p>';
+            html += '<p style="color:#94a3b8;">Ninguno de los 6 buzones del contexto tiene columna correspondiente en los insumos.</p>';
+            html += '<ul style="color:#94a3b8; padding-left:1.5rem; margin-top:0.5rem;">';
+            for (const b of r3.buzones_sin_columna) {
+                html += `<li>${b}</li>`;
+            }
+            html += '</ul>';
+        } else {
+            html += '<table class="tabla-filtrable" style="width:100%; border-collapse:collapse; margin-bottom:1rem;">';
+            html += '<thead><tr><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Asesor</th>';
+            for (const b of r3.buzones) {
+                html += `<th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">${b}</th>`;
+            }
+            html += '<th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Total</th></tr></thead><tbody>';
+            for (const asesor of r3.asesores) {
+                const fila = r3.matriz[asesor] || {};
+                html += '<tr>';
+                html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${asesor}</td>`;
+                let total = 0;
+                for (const b of r3.buzones) {
+                    const val = fila[b] || 0;
+                    total += val;
+                    html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${val}</td>`;
+                }
+                html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; font-weight:600;">${total}</td>`;
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+            html += `<p style="margin-top:0.5rem; color:#94a3b8; font-size:0.9rem;">Archivo: ${r3.archivo_usado || '—'}, Hoja: ${r3.hoja_usada || '—'}</p>`;
+        }
+
+        // R4
+        html += '<h4 style="color:#38bdf8; margin-top:1.5rem;">R4 — Desglose WhatsApp por subcanal</h4>';
+        html += '<table class="tabla-filtrable" style="width:100%; border-collapse:collapse; margin-bottom:1rem;">';
+        html += '<thead><tr><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Subcanal</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Archivo</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Hoja</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Filas</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Atendidas</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">AHT</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">TR</th></tr></thead><tbody>';
+        for (const sub of r4.subcanales) {
+            html += '<tr>';
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${sub.subcanal}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${sub.archivo || '—'}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${sub.hoja || '—'}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${sub.filas_procesadas}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(sub.atendidas)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(sub.aht)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(sub.tr)}</td>`;
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        html += `<p style="margin-top:0.5rem; color:#94a3b8; font-size:0.9rem;"><strong>Resumen:</strong> ${r4.resumen.subcanales_con_datos} de ${r4.resumen.total_subcanales} subcanales con datos.</p>`;
+
+        // R5
+        html += '<h4 style="color:#38bdf8; margin-top:1.5rem;">R5 — Desempeño por asesor de WhatsApp</h4>';
+        html += '<table class="tabla-filtrable" style="width:100%; border-collapse:collapse; margin-bottom:1rem;">';
+        html += '<thead><tr><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Asesor</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Cantidad WhatsApp</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Cantidad Llamadas</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Tiempo de Ocupación</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">AHT</th><th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem;">Total Gestiones</th></tr></thead><tbody>';
+        for (const a of r5.asesores) {
+            html += '<tr>';
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${a.asesor}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(a.cantidad_whatsapp)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(a.cantidad_llamadas)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(a.tiempo_ocupacion)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(a.aht)}</td>`;
+            html += `<td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(a.total_gestiones)}</td>`;
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        html += `<p style="margin-top:0.5rem; color:#94a3b8; font-size:0.9rem;"><strong>Resumen:</strong> ${r5.resumen.total_asesores} asesores, ${r5.resumen.total_gestiones_global} gestiones globales.</p>`;
+        html += `<p style="color:#94a3b8; font-size:0.9rem;">${r5.nota_limitacion}</p>`;
+
+// DETALLE POR ASESOR (Entrega 13)
+html += '<div style="margin-top:2rem;">';
+html += '<h4 style="color:#38bdf8; margin-bottom:1rem;">Detalle por Registro — Asesor</h4>';
+html += '<p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">Seleccione un asesor para ver su detalle expandido:</p>';
+html += '<select id="select-asesor" style="padding:0.75rem; font-size:1rem; border-radius:0.5rem; border:1px solid #334155; background:#0f172a; color:#e2e8f0; font-family:inherit; margin-bottom:1rem; min-width:250px;">';
+html += '<option value="">— Seleccionar asesor —</option>';
+for (const a of r5.asesores) {
+    html += `<option value="${a.asesor}">${a.asesor}</option>`;
+}
+html += '</select>';
+html += '<div id="detalle-asesor" style="display:none; background:#1e293b; border:1px solid #334155; border-radius:0.75rem; padding:1.5rem; margin-top:1rem;"></div>';
+html += '</div>';
+
+// Nota final y descarga
+html += '<div style="margin-top:1.5rem; padding:1rem; background:#1e3a5f; border:1px solid #3b82f6; border-radius:0.5rem;">';
+html += '<strong>Nota:</strong> Este informe se generó exclusivamente con los datos presentes en los archivos de insumos. No se inventaron valores.';
+html += '</div>';
+html += '<p style="margin-top:1rem;"><a href="/exportar_informe" class="btn-primary" style="display:inline-block; padding:0.75rem 1.5rem; text-align:center;">Descargar Informe Markdown</a></p>';
+
+resultadoDiv.innerHTML = html;
+resultadoDiv.style.display = 'block';
+
+// Función para mostrar detalle de asesor
+function mostrarDetalleAsesor(nombreAsesor) {
+    const contenedor = document.getElementById('detalle-asesor');
+    if (!nombreAsesor) {
+        contenedor.style.display = 'none';
+        contenedor.innerHTML = '';
+        return;
+    }
+
+    const asesor = r5.asesores.find(a => a.asesor === nombreAsesor);
+    if (!asesor) {
+        contenedor.style.display = 'none';
+        contenedor.innerHTML = '';
+        return;
+    }
+
+    let htmlDetalle = '<table style="width:100%; border-collapse:collapse;">';
+    htmlDetalle += '<thead><tr>';
+    htmlDetalle += '<th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem; width:35%;">Métrica</th>';
+    htmlDetalle += '<th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem; width:65%;">Valor</th>';
+    htmlDetalle += '</tr></thead><tbody>';
+    htmlDetalle += `<tr><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Asesor</td><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;"><strong>${asesor.asesor}</strong></td></tr>`;
+    htmlDetalle += `<tr><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Cantidad WhatsApp</td><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(asesor.cantidad_whatsapp)}</td></tr>`;
+    htmlDetalle += `<tr><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Cantidad de Llamadas</td><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(asesor.cantidad_llamadas)}</td></tr>`;
+    htmlDetalle += `<tr><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Tiempo de Ocupación</td><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(asesor.tiempo_ocupacion)}</td></tr>`;
+    htmlDetalle += `<tr><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">AHT del Asesor</td><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">${fmt(asesor.aht)}</td></tr>`;
+    htmlDetalle += `<tr><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; font-weight:600;">Total de Gestiones Atendidas</td><td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; font-weight:600; color:#38bdf8;">${fmt(asesor.total_gestiones)}</td></tr>`;
+    htmlDetalle += '</tbody></table>';
+    htmlDetalle += '<div class="alert alert-info" style="margin-top:1rem;">';
+    htmlDetalle += '<strong>Limitación:</strong> ' + r5.nota_limitacion;
+    htmlDetalle += '</div>';
+
+    contenedor.innerHTML = htmlDetalle;
+    contenedor.style.display = 'block';
+}
+
+document.getElementById('select-asesor').addEventListener('change', function () {
+    mostrarDetalleAsesor(this.value);
+});
+
+// Aplicar filtro global a todas las tablas
+document.getElementById('filtro-global').addEventListener('input', function () {
+
+        // Aplicar filtro global a todas las tablas
+        document.getElementById('filtro-global').addEventListener('input', function () {
+            const texto = this.value.toLowerCase();
+            const tablas = document.querySelectorAll('.tabla-filtrable tbody tr');
+            for (const fila of tablas) {
+                let coincide = false;
+                for (const celda of fila.cells) {
+                    if (celda.textContent.toLowerCase().includes(texto)) {
+                        coincide = true;
+                        break;
+                    }
+                }
+                fila.style.display = coincide ? '' : 'none';
+            }
+        });
+
+    } catch (error) {
+        resultadoDiv.innerHTML = `
+            <div class="alert alert-error">
+                <strong>Error:</strong> ${error.message}
+            </div>
+        `;
+        resultadoDiv.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Ejecutar Análisis';
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,41 @@
+# Entorno virtual de uv y Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Variables de entorno y secretos (NUNCA subir a GitHub)
+.env
+.env.local
+.env.*.local
+
+# Archivos de lock y dependencias
+uv.lock
+.poetry/
+
+# IDE y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Pruebas y caché
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Build y dist
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log

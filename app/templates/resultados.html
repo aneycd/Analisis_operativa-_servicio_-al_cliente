@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+
+{% block title %}Resultados - Análisis Operativo{% endblock %}
+
+{% block content %}
+<div class="content-block">
+    <div class="card">
+        <h2>Informe Ejecutivo — Resultados del Análisis</h2>
+        <p>
+            Métricas operativas del Contact Center calculadas exclusivamente desde los archivos de insumos.
+            Usa el filtro de texto para buscar en cualquier tabla.
+        </p>
+
+        <div class="alert alert-info">
+            <strong>Archivos de insumos leídos:</strong>
+            <ul style="margin-top: 0.5rem; padding-left: 1.5rem; color: #94a3b8;">
+                <li><code>Control CHATBOT.xlsx</code></li>
+                <li><code>Control llamadas y correos.xlsx</code></li>
+                <li><code>Control WhatsApp.xlsx</code></li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Tablero de contadores grandes -->
+    <div class="card">
+        <h3>Tablero de Métricas Globales</h3>
+        <div class="contadores" id="contadores">
+            <!-- Se llenan dinámicamente con JavaScript -->
+        </div>
+    </div>
+
+    <!-- Filtro global -->
+    <div class="card" style="margin-top: 1rem;">
+        <h3>Filtro de Tablas</h3>
+        <input type="text" id="filtro-tablas" placeholder="Escriba para filtrar filas en todas las tablas..." style="width: 100%; padding: 0.75rem; font-size: 1rem; border-radius: 0.5rem; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-family: inherit;">
+        <p style="margin-top: 0.5rem; color: #64748b; font-size: 0.9rem;">
+            El filtro busca en cualquier celda de las tablas siguientes.
+        </p>
+    </div>
+
+    <!-- R1: Métricas globales por canal -->
+    <div class="card" style="margin-top: 1rem;">
+        <h3 style="color:#38bdf8;">R1 — Métricas globales por canal</h3>
+        <table class="tabla-filtrable" id="tabla-r1">
+            <thead>
+                <tr>
+                    <th>Canal</th>
+                    <th>Archivo</th>
+                    <th>Hoja</th>
+                    <th>Filas Procesadas</th>
+                    <th>Cantidad Atendida</th>
+                    <th>AHT</th>
+                    <th>TR</th>
+                </tr>
+            </thead>
+            <tbody id="tbody-r1">
+                <!-- Se llena dinámicamente -->
+            </tbody>
+        </table>
+        <p id="resumen-r1" style="margin-top: 0.5rem; color: #94a3b8; font-size: 0.9rem;"></p>
+    </div>
+
+    <!-- R2: Desglose de correos por buzón -->
+    <div class="card" style="margin-top: 1rem;">
+        <h3 style="color:#38bdf8;">R2 — Desglose de correos por buzón</h3>
+        <table class="tabla-filtrable" id="tabla-r2">
+            <thead>
+                <tr>
+                    <th>Buzón</th>
+                    <th>Archivo</th>
+                    <th>Hoja</th>
+                    <th>Cantidad Atendida</th>
+                </tr>
+            </thead>
+            <tbody id="tbody-r2">
+                <!-- Se llena dinámicamente -->
+            </tbody>
+        </table>
+        <p id="resumen-r2" style="margin-top: 0.5rem; color: #94a3b8; font-size: 0.9rem;"></p>
+    </div>
+
+    <!-- R3: Matriz Asesor vs Buzón -->
+    <div class="card" style="margin-top: 1rem;">
+        <h3 style="color:#38bdf8;">R3 — Matriz Asesor vs Buzón de correos</h3>
+        <div id="contenido-r3">
+            <!-- Se llena dinámicamente -->
+        </div>
+    </div>
+
+    <!-- R4: Desglose WhatsApp por subcanal -->
+    <div class="card" style="margin-top: 1rem;">
+        <h3 style="color:#38bdf8;">R4 — Desglose WhatsApp por subcanal</h3>
+        <table class="tabla-filtrable" id="tabla-r4">
+            <thead>
+                <tr>
+                    <th>Subcanal</th>
+                    <th>Archivo</th>
+                    <th>Hoja</th>
+                    <th>Filas Procesadas</th>
+                    <th>Atendidas</th>
+                    <th>AHT</th>
+                    <th>TR</th>
+                </tr>
+            </thead>
+            <tbody id="tbody-r4">
+                <!-- Se llena dinámicamente -->
+            </tbody>
+        </table>
+        <p id="resumen-r4" style="margin-top: 0.5rem; color: #94a3b8; font-size: 0.9rem;"></p>
+    </div>
+
+    <!-- R5: Desempeño por asesor -->
+    <div class="card" style="margin-top: 1rem;">
+        <h3 style="color:#38bdf8;">R5 — Desempeño por asesor de WhatsApp</h3>
+        <table class="tabla-filtrable" id="tabla-r5">
+            <thead>
+                <tr>
+                    <th>Asesor</th>
+                    <th>Cantidad WhatsApp</th>
+                    <th>Cantidad Llamadas</th>
+                    <th>Tiempo de Ocupación</th>
+                    <th>AHT</th>
+                    <th>Total Gestiones</th>
+                </tr>
+            </thead>
+            <tbody id="tbody-r5">
+                <!-- Se llena dinámicamente -->
+            </tbody>
+        </table>
+        <p id="resumen-r5" style="margin-top: 0.5rem; color: #94a3b8; font-size: 0.9rem;"></p>
+    </div>
+
+    <!-- Descarga -->
+    <div class="card" style="margin-top: 1rem;">
+        <a href="/exportar_informe" class="btn-primary" style="display:inline-block; padding:0.75rem 1.5rem; text-align:center;">Descargar Informe Markdown</a>
+    </div>
+</div>
+
+<script>
+// Estado global de los datos
+let datosGlobales = null;
+
+// Función auxiliar: formatear valor o guión
+function fmt(valor) {
+    return valor != null && valor !== "" ? valor : "—";
+}
+
+// Función auxiliar: crear fila de tabla
+function crearFila(celdas) {
+    const tr = document.createElement("tr");
+    for (const celda of celdas) {
+        const td = document.createElement("td");
+        td.textContent = celda;
+        tr.appendChild(td);
+    }
+    return tr;
+}
+
+// Función: llenar contadores grandes
+function llenarContadores(datos) {
+    const contenedor = document.getElementById("contadores");
+    contenedor.innerHTML = "";
+
+    const r1 = datos.r1_metricas_canal;
+    const r5 = datos.r5_desempeno_asesor;
+
+    // Calcular totales globales
+    let totalAtendidas = 0;
+    let totalAhtSuma = 0;
+    let totalAhtCount = 0;
+    let totalTrSuma = 0;
+    let totalTrCount = 0;
+    let totalGestiones = r5.resumen.total_gestiones_global || 0;
+
+    for (const canal of r1.canales) {
+        if (canal.cantidad_atendida != null) totalAtendidas += canal.cantidad_atendida;
+        if (canal.aht != null) { totalAhtSuma += canal.aht; totalAhtCount++; }
+        if (canal.tr != null) { totalTrSuma += canal.tr; totalTrCount++; }
+    }
+
+    const ahtPromedio = totalAhtCount > 0 ? (totalAhtSuma / totalAhtCount).toFixed(2) : "—";
+    const trPromedio = totalTrCount > 0 ? (totalTrSuma / totalTrCount).toFixed(2) : "—";
+
+    const contadores = [
+        { etiqueta: "Cantidad Atendida", valor: totalAtendidas.toLocaleString(), subtitulo: "Todos los canales" },
+        { etiqueta: "AHT Promedio", valor: ahtPromedio, subtitulo: "Promedio por canal" },
+        { etiqueta: "TR Promedio", valor: trPromedio, subtitulo: "Tasa de respuesta" },
+        { etiqueta: "Gestiones por Asesor", valor: totalGestiones.toLocaleString(), subtitulo: "Total global" },
+    ];
+
+    for (const c of contadores) {
+        const card = document.createElement("div");
+        card.style.cssText = "background:#1e293b; border:1px solid #334155; border-radius:0.75rem; padding:1.5rem; text-align:center; min-width:150px;";
+        card.innerHTML = `
+            <div style="font-size:0.85rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem;">${c.etiqueta}</div>
+            <div style="font-size:2rem; font-weight:700; color:#38bdf8;">${c.valor}</div>
+            <div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">${c.subtitulo}</div>
+        `;
+        contenedor.appendChild(card);
+    }
+}
+
+// Función: llenar tabla R1
+function llenarTablaR1(datos) {
+    const tbody = document.getElementById("tbody-r1");
+    const resumen = document.getElementById("resumen-r1");
+    tbody.innerHTML = "";
+
+    for (const canal of datos.canales) {
+        tbody.appendChild(crearFila([
+            canal.canal,
+            canal.archivo || "—",
+            canal.hoja || "—",
+            canal.filas_procesadas,
+            fmt(canal.cantidad_atendida),
+            fmt(canal.aht),
+            fmt(canal.tr),
+        ]));
+    }
+
+    resumen.textContent = `Resumen: ${datos.resumen.canales_con_datos} de ${datos.resumen.total_canales} canales con datos.`;
+}
+
+// Función: llenar tabla R2
+function llenarTablaR2(datos) {
+    const tbody = document.getElementById("tbody-r2");
+    const resumen = document.getElementById("resumen-r2");
+    tbody.innerHTML = "";
+
+    for (const b of datos.buzones) {
+        tbody.appendChild(crearFila([
+            b.buzon,
+            b.archivo || "—",
+            b.hoja || "—",
+            fmt(b.cantidad_atendida),
+        ]));
+    }
+
+    resumen.textContent = `Resumen: ${datos.resumen.buzones_encontrados} de ${datos.resumen.total_buzones} buzones encontrados en insumos.`;
+    if (datos.columnas_faltantes.length > 0) {
+        resumen.textContent += ` Buzones sin columna: ${datos.columnas_faltantes.join(", ")}.`;
+    }
+}
+
+// Función: llenar contenido R3
+function llenarContenidoR3(datos) {
+    const contenedor = document.getElementById("contenido-r3");
+    contenedor.innerHTML = "";
+
+    if (!datos.datos_disponibles) {
+        contenedor.innerHTML = `
+            <p style="color:#fca5a5;">No hay datos disponibles para calcular la matriz.</p>
+            <p style="color:#94a3b8;">Ninguno de los 6 buzones del contexto tiene columna correspondiente en los insumos.</p>
+            <ul style="color:#94a3b8; padding-left:1.5rem; margin-top:0.5rem;">
+                ${datos.buzones_sin_columna.map(b => `<li>${b}</li>`).join("")}
+            </ul>
+        `;
+        return;
+    }
+
+    const tabla = document.createElement("table");
+    tabla.className = "tabla-filtrable";
+    const thead = document.createElement("thead");
+    const trHead = document.createElement("tr");
+    trHead.innerHTML = "<th>Asesor</th>" + datos.buzones.map(b => `<th>${b}</th>`).join("") + "<th>Total</th>";
+    thead.appendChild(trHead);
+    tabla.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const asesor of datos.asesores) {
+        const fila = datos.matriz[asesor] || {};
+        const tr = document.createElement("tr");
+        const tdAsesor = document.createElement("td");
+        tdAsesor.textContent = asesor;
+        tr.appendChild(tdAsesor);
+        let total = 0;
+        for (const b of datos.buzones) {
+            const td = document.createElement("td");
+            const val = fila[b] || 0;
+            td.textContent = val;
+            total += val;
+            tr.appendChild(td);
+        }
+        const tdTotal = document.createElement("td");
+        tdTotal.textContent = total;
+        tdTotal.style.fontWeight = "600";
+        tr.appendChild(tdTotal);
+        tbody.appendChild(tr);
+    }
+    tabla.appendChild(tbody);
+    contenedor.appendChild(tabla);
+}
+
+// Función: llenar tabla R4
+function llenarTablaR4(datos) {
+    const tbody = document.getElementById("tbody-r4");
+    const resumen = document.getElementById("resumen-r4");
+    tbody.innerHTML = "";
+
+    for (const sub of datos.subcanales) {
+        tbody.appendChild(crearFila([
+            sub.subcanal,
+            sub.archivo || "—",
+            sub.hoja || "—",
+            sub.filas_procesadas,
+            fmt(sub.atendidas),
+            fmt(sub.aht),
+            fmt(sub.tr),
+        ]));
+    }
+
+    resumen.textContent = `Resumen: ${datos.resumen.subcanales_con_datos} de ${datos.resumen.total_subcanales} subcanales con datos.`;
+}
+
+// Función: llenar tabla R5
+function llenarTablaR5(datos) {
+    const tbody = document.getElementById("tbody-r5");
+    const resumen = document.getElementById("resumen-r5");
+    tbody.innerHTML = "";
+
+    for (const a of datos.asesores) {
+        tbody.appendChild(crearFila([
+            a.asesor,
+            fmt(a.cantidad_whatsapp),
+            fmt(a.cantidad_llamadas),
+            fmt(a.tiempo_ocupacion),
+            fmt(a.aht),
+            fmt(a.total_gestiones),
+        ]));
+    }
+
+    resumen.textContent = `Resumen: ${datos.resumen.total_asesores} asesores, ${datos.resumen.total_gestiones_global} gestiones globales.`;
+    if (datos.nota_limitacion) {
+        resumen.textContent += ` ${datos.nota_limitacion}`;
+    }
+}
+
+// Función: cargar datos desde la API
+async function cargarDatos() {
+    try {
+        const respuesta = await fetch("/api/informe");
+        if (!respuesta.ok) throw new Error("Error del servidor: " + respuesta.status);
+        datosGlobales = await respuesta.json();
+
+        llenarContadores(datosGlobales);
+        llenarTablaR1(datosGlobales.r1_metricas_canal);
+        llenarTablaR2(datosGlobales.r2_correos_buzon);
+        llenarContenidoR3(datosGlobales.r3_matriz_asesor_buzon);
+        llenarTablaR4(datosGlobales.r4_whatsapp_subcanal);
+        llenarTablaR5(datosGlobales.r5_desempeno_asesor);
+    } catch (error) {
+        console.error(error);
+        document.getElementById("contadores").innerHTML = `
+            <div style="color:#fca5a5; padding:1rem;">Error al cargar los datos: ${error.message}</div>
+        `;
+    }
+}
+
+// Función: filtrar tablas por texto
+function filtrarTablas() {
+    const texto = document.getElementById("filtro-tablas").value.toLowerCase();
+    const tablas = document.querySelectorAll(".tabla-filtrable tbody tr");
+
+    for (const fila of tablas) {
+        let coincide = false;
+        for (const celda of fila.cells) {
+            if (celda.textContent.toLowerCase().includes(texto)) {
+                coincide = true;
+                break;
+            }
+        }
+        fila.style.display = coincide ? "" : "none";
+    }
+}
+
+// Inicializar
+document.addEventListener("DOMContentLoaded", function () {
+    cargarDatos();
+
+    document.getElementById("filtro-tablas").addEventListener("input", filtrarTablas);
+});
+</script>
+{% endblock %}

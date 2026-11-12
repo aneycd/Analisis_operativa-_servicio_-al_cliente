@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Detalle de Asesor - Análisis Operativo{% endblock %}
+
+{% block content %}
+<div class="content-block">
+    <div class="card">
+        <h2>Detalle de Registro — {{ asesor }}</h2>
+        <p>
+            Vista expandida de las métricas operativas del asesor seleccionada.
+            Todos los datos provienen exclusivamente de los archivos de insumos.
+        </p>
+
+        <a href="/" class="btn-primary" style="display:inline-block; padding:0.5rem 1rem; margin-bottom:1rem;">← Volver al inicio</a>
+    </div>
+
+    <div class="card">
+        <h3>Resumen del Asesor</h3>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:1rem;">
+            <tr>
+                <th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem; width:30%;">Métrica</th>
+                <th style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; background:#0f172a; color:#94a3b8; font-weight:600; font-size:0.9rem; width:70%;">Valor</th>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Asesor</td>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;"><strong>{{ asesor }}</strong></td>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Cantidad WhatsApp</td>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">{{ cantidad_whatsapp if cantidad_whatsapp is not none else "—" }}</td>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Cantidad de Llamadas</td>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">{{ cantidad_llamadas if cantidad_llamadas is not none else "—" }}</td>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">Tiempo de Ocupación</td>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">{{ tiempo_ocupacion if tiempo_ocupacion is not none else "—" }}</td>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">AHT del Asesor</td>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155;">{{ aht if aht is not none else "—" }}</td>
+            </tr>
+            <tr>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; font-weight:600;">Total de Gestiones Atendidas</td>
+                <td style="padding:0.75rem; text-align:left; border-bottom:1px solid #334155; font-weight:600; color:#38bdf8;">{{ total_gestiones if total_gestiones is not none else "—" }}</td>
+            </tr>
+        </table>
+
+        <div class="alert alert-info">
+            <strong>Limitación:</strong> {{ nota_limitacion }}
+        </div>
+    </div>
+</div>
+{% endblock %}
